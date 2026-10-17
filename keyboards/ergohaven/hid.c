@@ -15,6 +15,9 @@
 #ifdef EH_STARTUP_IMAGE_ENABLE
 #    include "src/display/eh_startup_image.h"
 #endif
+#ifdef EH_CLAUDE_PAD_ENABLE
+#    include "src/display/eh_claude_pad.h"
+#endif
 
 static hid_data_t hid_data;
 
@@ -703,6 +706,9 @@ void raw_hid_receive_kb(uint8_t *data, uint8_t length) {
         return;
     }
 #endif
+#ifdef EH_CLAUDE_PAD_ENABLE
+    if (eh_claude_pad_process_hid(data, length)) return;
+#endif
 #ifdef EH_STARTUP_IMAGE_ENABLE
     if (eh_startup_image_process_hid(data, length)) return;
 #endif
@@ -740,6 +746,9 @@ void raw_hid_receive_kb(uint8_t *data, uint8_t length) {
         if (!app_layout_event_poll) *((uint64_t *)data) = VIAL_HID_MAGIC;
         return;
     }
+#endif
+#ifdef EH_CLAUDE_PAD_ENABLE
+    if (eh_claude_pad_process_hid(data, length)) return;
 #endif
 #ifdef EH_STARTUP_IMAGE_ENABLE
     if (eh_startup_image_process_hid(data, length)) return;

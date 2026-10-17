@@ -9,6 +9,10 @@
 #include "ergohaven.h"
 #include "src/display/eh_symbols.h"
 #include "src/display/eh_display.h"
+#ifdef EH_CLAUDE_PAD_ENABLE
+#include "src/display/eh_claude_pad.h"
+extern const eh_screen_t eh_screen_claude;
+#endif
 
 extern const eh_screen_t eh_screen_layout;
 void screen_layout_process_keyevent(uint8_t row, uint8_t col, bool pressed);
@@ -33,6 +37,9 @@ typedef enum {
     SCREEN_LAYOUT,
     SCREEN_VOLUME,
     SCREEN_HOME,
+#ifdef EH_CLAUDE_PAD_ENABLE
+    SCREEN_CLAUDE,
+#endif
 } screen_t;
 
 static screen_t screen_state        = SCREEN_OFF;
@@ -67,6 +74,12 @@ static void apply_screen_state(void) {
             current_screen = eh_screen_volume;
             display_turn_on();
             break;
+#ifdef EH_CLAUDE_PAD_ENABLE
+        case SCREEN_CLAUDE:
+            current_screen = eh_screen_claude;
+            display_turn_on();
+            break;
+#endif
         case SCREEN_OFF:
             display_turn_off();
             return;
@@ -155,6 +168,9 @@ void display_init_screens_kb(void) {
     eh_screen_layout.init();
     eh_screen_home.init();
     eh_screen_volume.init();
+#ifdef EH_CLAUDE_PAD_ENABLE
+    eh_screen_claude.init();
+#endif
     current_screen      = eh_screen_splash;
     change_screen_state = SCREEN_SPLASH;
     screen_state        = SCREEN_SPLASH;
@@ -230,7 +246,11 @@ void display_housekeeping_task(void) {
                 if (display_expired) {
                     change_screen_state = SCREEN_OFF;
                 } else if (clock_delay > 0 && user_activity_elapsed > clock_delay) {
+#ifdef EH_CLAUDE_PAD_ENABLE
+                    change_screen_state = eh_claude_pad_live() ? SCREEN_CLAUDE : SCREEN_HOME;
+#else
                     change_screen_state = SCREEN_HOME;
+#endif
                 }
                 break;
 
@@ -238,7 +258,23 @@ void display_housekeeping_task(void) {
                 if (display_expired && screen_elapsed > 1000) {
                     change_screen_state = SCREEN_OFF;
                 }
+#ifdef EH_CLAUDE_PAD_ENABLE
+                else if (eh_claude_pad_live()) {
+                    change_screen_state = SCREEN_CLAUDE;
+                }
+#endif
                 break;
+
+#ifdef EH_CLAUDE_PAD_ENABLE
+            case SCREEN_CLAUDE:
+                if (eh_claude_pad_ask_active()) break;
+                if (display_expired && screen_elapsed > 1000) {
+                    change_screen_state = SCREEN_OFF;
+                } else if (!eh_claude_pad_live()) {
+                    change_screen_state = SCREEN_HOME;
+                }
+                break;
+#endif
 
             case SCREEN_VOLUME:
                 if (!is_hid_volume_active() || screen_elapsed > EH_DISPLAY_TIMEOUT_VOLUME_SCREEN) {
@@ -250,6 +286,15 @@ void display_housekeeping_task(void) {
                 break;
         }
     }
+
+#ifdef EH_CLAUDE_PAD_ENABLE
+    // A pending Claude question owns the screen and the encoder until it is
+    // answered or the host stops talking to the device.
+    if (eh_claude_pad_ask_active()) {
+        last_user_activity_timer = timer_read32();
+        change_screen_state      = SCREEN_CLAUDE;
+    }
+#endif
 
     if (change_screen_state != screen_state) {
         apply_screen_state();

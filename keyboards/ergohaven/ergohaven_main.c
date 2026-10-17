@@ -7,6 +7,9 @@
 #    include "transactions.h"
 #endif
 #include "src/display/eh_display.h"
+#ifdef EH_CLAUDE_PAD_ENABLE
+#    include "src/display/eh_claude_pad.h"
+#endif
 #include "src/eh_pointing.h"
 #include "hid.h"
 #include "version.h"
@@ -149,6 +152,21 @@ void vial_get_unlock_combo_coords(uint8_t *rows, uint8_t *cols, size_t count) {
 #endif
 
 bool pre_process_record_kb(uint16_t keycode, keyrecord_t* record) {
+#ifdef EH_CLAUDE_PAD_ENABLE
+    // While a Claude question is shown, the encoder chooses an answer and its
+    // click confirms it. Nothing is sent to the host as keystrokes; the host
+    // reads the answer over raw HID.
+    if (eh_claude_pad_ask_active()) {
+        if (IS_ENCODEREVENT(record->event)) {
+            if (record->event.pressed) eh_claude_pad_encoder(record->event.key.row == KEYLOC_ENCODER_CW);
+            return false;
+        }
+        if (IS_KEYEVENT(record->event) && record->event.key.row == 0 && record->event.key.col == 2) {
+            if (record->event.pressed) eh_claude_pad_click();
+            return false;
+        }
+    }
+#endif
 #ifdef EH_HAS_DISPLAY
 #    if defined(ENCODER_ENABLE) && defined(ENCODER_MAP_ENABLE)
     if (IS_ENCODEREVENT(record->event) &&

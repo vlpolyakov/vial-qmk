@@ -1,0 +1,38 @@
+name: Claude Pad firmware
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude-pad]
+
+jobs:
+  build:
+    name: Build M4CR0Pad v3
+    runs-on: ubuntu-latest
+    container: ghcr.io/qmk/qmk_cli:latest
+
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Compile
+        run: |
+          git config --global --add safe.directory "$(pwd)"
+          qmk compile -kb ergohaven/macropad/rev3 -km v3 > build.log 2>&1
+          rc=$?
+          grep -nE "error|overflow|region|Firmware size|bytes free|Warning" build.log | head -40
+          tail -25 build.log
+          ls -l *.uf2 2>/dev/null || true
+          exit $rc
+
+      - name: Upload firmware
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude_pad_macropad_v3
+          path: |
+            *.uf2
+            build.log

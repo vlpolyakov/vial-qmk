@@ -1,0 +1,154 @@
+#include "eh_claude_pad.h"
+
+#include <string.h>
+
+#include "timer.h"
+
+static eh_claude_pad_t pad;
+static uint32_t        last_host_contact;
+static uint32_t        last_status_rx;
+static bool            host_seen;
+static bool            status_seen;
+
+eh_claude_pad_t *eh_claude_pad_get(void) {
+    return &pad;
+}
+
+static char *field_buffer(uint8_t field, size_t *capacity) {
+    switch (field) {
+        case 0:
+            *capacity = sizeof pad.status;
+            return pad.status;
+        case 1:
+            *capacity = sizeof pad.task;
+            return pad.task;
+        case 2:
+            *capacity = sizeof pad.prompt;
+            return pad.prompt;
+        case 3:
+        case 4:
+        case 5:
+        case 6:
+            *capacity = sizeof pad.opt[0];
+            return pad.opt[field - 3];
+        default:
+            return NULL;
+    }
+}
+
+static void touch_host(void) {
+    last_host_contact = timer_read32();
+    host_seen         = true;
+}
+
+static bool process_set(uint8_t *data) {
+    uint8_t sub = data[1];
+
+    if (sub <= 6) {
+        uint8_t offset = data[2];
+        uint8_t len    = data[3];
+        size_t  capacity;
+        char   *buffer = field_buffer(sub, &capacity);
+        if (buffer == NULL || len > 28 || (size_t)offset + len >= capacity) return false;
+        memcpy(buffer + offset, data + 4, len);
+        buffer[offset + len] = '\0';
+        pad.dirty            = true;
+        if (sub == 0) {
+            status_seen   = true;
+            last_status_rx = timer_read32();
+        }
+        return true;
+    }
+
+    if (sub == EH_CLAUDE_SUB_COMMIT) {
+        uint8_t mode  = data[2];
+        uint8_t count = data[3];
+        if (mode > EH_CLAUDE_MODE_ASK || count > EH_CLAUDE_MAX_OPTS) return false;
+        if (mode == EH_CLAUDE_MODE_ASK && count < 2) return false;
+        uint16_t id = data[5] | ((uint16_t)data[6] << 8);
+        if (mode == EH_CLAUDE_MODE_ASK && (pad.mode != EH_CLAUDE_MODE_ASK || pad.request_id != id)) {
+            pad.answered = false;
+            pad.answer   = 0;
+        }
+        pad.mode       = mode;
+        pad.opt_count  = count;
+        pad.selected   = count > 0 && data[4] < count ? data[4] : 0;
+        pad.request_id = id;
+        pad.dirty      = true;
+        return true;
+    }
+
+    if (sub == EH_CLAUDE_SUB_CLEAR) {
+        pad.mode      = EH_CLAUDE_MODE_IDLE;
+        pad.opt_count = 0;
+        pad.selected  = 0;
+        pad.answered  = false;
+        pad.task[0]   = '\0';
+        pad.prompt[0] = '\0';
+        for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) pad.opt[i][0] = '\0';
+        pad.dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+bool eh_claude_pad_process_hid(uint8_t *data, uint8_t length) {
+    if (length < 4) return false;
+
+    if (data[0] == EH_CLAUDE_CMD_SET) {
+        bool ok = process_set(data);
+        if (ok) touch_host();
+        memset(data + 1, 0, length - 1);
+        data[1] = ok ? 1 : 0;
+        return true;
+    }
+
+    if (data[0] == EH_CLAUDE_CMD_POLL) {
+        uint8_t  flags = data[1];
+        uint16_t id    = data[2] | ((uint16_t)data[3] << 8);
+        touch_host();
+        if ((flags & 1) && pad.request_id == id) {
+            pad.answered = false;
+            pad.dirty    = true;
+        }
+        memset(data, 0, length);
+        data[0] = EH_CLAUDE_CMD_POLL;
+        data[1] = 1;
+        data[2] = pad.mode;
+        data[3] = pad.answered ? 1 : 0;
+        data[4] = pad.answer;
+        data[5] = pad.selected;
+        data[6] = pad.request_id & 0xFF;
+        data[7] = pad.request_id >> 8;
+        return true;
+    }
+
+    return false;
+}
+
+bool eh_claude_pad_ask_active(void) {
+    return pad.mode == EH_CLAUDE_MODE_ASK && !pad.answered && pad.opt_count >= 2 && host_seen &&
+           timer_elapsed32(last_host_contact) < EH_CLAUDE_ASK_HOST_TIMEOUT_MS;
+}
+
+bool eh_claude_pad_live(void) {
+    return status_seen && timer_elapsed32(last_status_rx) < EH_CLAUDE_LIVE_TIMEOUT_MS;
+}
+
+void eh_claude_pad_encoder(bool clockwise) {
+    if (!eh_claude_pad_ask_active()) return;
+    if (clockwise) {
+        pad.selected = (pad.selected + 1) % pad.opt_count;
+    } else {
+        pad.selected = (pad.selected + pad.opt_count - 1) % pad.opt_count;
+    }
+    pad.dirty = true;
+}
+
+void eh_claude_pad_click(void) {
+    if (!eh_claude_pad_ask_active()) return;
+    pad.answered = true;
+    pad.answer   = pad.selected;
+    pad.dirty    = true;
+}
