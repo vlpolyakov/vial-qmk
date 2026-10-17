@@ -245,12 +245,14 @@ void display_housekeeping_task(void) {
             case SCREEN_LAYOUT:
                 if (display_expired) {
                     change_screen_state = SCREEN_OFF;
-                } else if (clock_delay > 0 && user_activity_elapsed > clock_delay) {
 #ifdef EH_CLAUDE_PAD_ENABLE
-                    change_screen_state = eh_claude_pad_live() ? SCREEN_CLAUDE : SCREEN_HOME;
-#else
-                    change_screen_state = SCREEN_HOME;
+                } else if (eh_claude_pad_live() && user_activity_elapsed > 3000) {
+                    // While Claude Code is running its status screen is the resting screen:
+                    // key presses show the layer for a moment, then it comes back.
+                    change_screen_state = SCREEN_CLAUDE;
 #endif
+                } else if (clock_delay > 0 && user_activity_elapsed > clock_delay) {
+                    change_screen_state = SCREEN_HOME;
                 }
                 break;
 

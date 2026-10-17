@@ -55,6 +55,7 @@ SRC += keyboards/ergohaven/src/display/eh_background.c
 SRC += keyboards/ergohaven/src/display/eh_startup_image.c
 SRC += keyboards/ergohaven/src/display/eh_pictograms.c
 SRC += keyboards/ergohaven/src/display/eh_logo.c
+SRC += keyboards/ergohaven/src/display/fonts/eh_font_montserrat_16.c
 SRC += keyboards/ergohaven/src/display/fonts/eh_font_montserrat_20.c
 SRC += keyboards/ergohaven/src/display/fonts/eh_font_montserrat_28.c
 
