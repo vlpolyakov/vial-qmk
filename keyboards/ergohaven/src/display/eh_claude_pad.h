@@ -28,6 +28,8 @@
  *
  * Device -> host reply to POLL:
  *   F1 01 <mode> <answered> <answer_idx> <selected> <id_lo> <id_hi>
+ *      <raw_clicks> <handled_clicks> <rotations> <state_at_last_click>   (diagnostics, wrap at 256)
+ *   state bits: 1 ask active, 2 mode is ask, 4 answered, 8 host seen
  *
  * Every reply to SET is: F0 <1 ok | 0 rejected> 00 ...
  */
@@ -105,5 +107,7 @@ bool eh_claude_pad_keep_awake(void);
 // Seconds since the current busy period started.
 uint32_t eh_claude_pad_busy_seconds(void);
 
+// Every press of the encoder click key, whether or not it is captured (diagnostics).
+void eh_claude_pad_note_raw_click(void);
 void eh_claude_pad_encoder(bool clockwise);
 void eh_claude_pad_click(void);

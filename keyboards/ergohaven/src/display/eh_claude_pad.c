@@ -11,6 +11,7 @@ static uint32_t        last_busy_rx;
 static uint32_t        busy_since;
 static uint32_t        wait_since;
 static uint32_t        last_text_rx;
+static uint8_t         raw_clicks, handled_clicks, rotations, click_state;
 static bool            host_seen;
 static bool            status_seen;
 
@@ -153,6 +154,10 @@ bool eh_claude_pad_process_hid(uint8_t *data, uint8_t length) {
         data[5] = pad.selected;
         data[6] = pad.request_id & 0xFF;
         data[7] = pad.request_id >> 8;
+        data[8] = raw_clicks;
+        data[9] = handled_clicks;
+        data[10] = rotations;
+        data[11] = click_state;
         return true;
     }
 
@@ -188,8 +193,14 @@ uint32_t eh_claude_pad_busy_seconds(void) {
     return timer_elapsed32(busy_since) / 1000;
 }
 
+void eh_claude_pad_note_raw_click(void) {
+    raw_clicks++;
+    click_state = (eh_claude_pad_ask_active() ? 1 : 0) | (pad.mode == EH_CLAUDE_MODE_ASK ? 2 : 0) | (pad.answered ? 4 : 0) | (host_seen ? 8 : 0);
+}
+
 void eh_claude_pad_encoder(bool clockwise) {
     if (!eh_claude_pad_ask_active()) return;
+    rotations++;
     if (clockwise) {
         pad.selected = (pad.selected + 1) % pad.opt_count;
     } else {
@@ -200,6 +211,7 @@ void eh_claude_pad_encoder(bool clockwise) {
 
 void eh_claude_pad_click(void) {
     if (!eh_claude_pad_ask_active()) return;
+    handled_clicks++;
     pad.answered = true;
     pad.answer   = pad.selected;
     pad.dirty    = true;
