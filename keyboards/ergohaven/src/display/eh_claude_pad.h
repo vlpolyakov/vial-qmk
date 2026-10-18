@@ -96,6 +96,8 @@ bool eh_claude_pad_process_hid(uint8_t *data, uint8_t length);
 
 // True while an ask request waits for the encoder (captures rotation + click).
 bool eh_claude_pad_ask_active(void);
+// A question is on the screen, even if it was just answered and the host has not taken the answer yet.
+bool eh_claude_pad_ask_visible(void);
 // True while the host keeps the status screen fresh.
 bool eh_claude_pad_live(void);
 // True while the host reports that Claude is working (and keeps saying so).

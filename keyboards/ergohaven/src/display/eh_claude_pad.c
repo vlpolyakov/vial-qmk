@@ -179,6 +179,10 @@ bool eh_claude_pad_ask_active(void) {
            timer_elapsed32(last_host_contact) < EH_CLAUDE_ASK_HOST_TIMEOUT_MS;
 }
 
+bool eh_claude_pad_ask_visible(void) {
+    return pad.mode == EH_CLAUDE_MODE_ASK && pad.opt_count >= 2 && host_seen && timer_elapsed32(last_host_contact) < EH_CLAUDE_ASK_HOST_TIMEOUT_MS;
+}
+
 bool eh_claude_pad_live(void) {
     return status_seen && timer_elapsed32(last_status_rx) < EH_CLAUDE_LIVE_TIMEOUT_MS;
 }

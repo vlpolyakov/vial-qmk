@@ -194,7 +194,13 @@ void display_housekeeping_task(void) {
     // The normal key callback wakes synchronously. Keep the global matrix
     // timestamp as an independent fallback for events consumed before
     // pre_process_record_kb (or any future special matrix event).
-    if (matrix_changed) {
+    // Switching to the layout screen and back takes long enough to make the scanner miss key presses, so a
+    // question on the Claude screen is left alone (the click confirms it, it must not blink the display).
+    bool ask_visible = false;
+#ifdef EH_CLAUDE_PAD_ENABLE
+    ask_visible = eh_claude_pad_ask_visible();
+#endif
+    if (matrix_changed && !ask_visible) {
         last_user_activity_timer = timer_read32();
         change_screen_state      = SCREEN_LAYOUT;
         screen_timer             = last_user_activity_timer;
