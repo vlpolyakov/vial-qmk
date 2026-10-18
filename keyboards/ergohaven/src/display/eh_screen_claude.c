@@ -19,7 +19,7 @@ LV_FONT_DECLARE(eh_font_montserrat_20);
 // Two views share the screen:
 //   status  y   0..131  icon + model + context, 5h limit, weekly limit, task status (up to 3 lines)
 //           y 135       rule
-//           y 141..187  current task, 189..209 current activity, 214..264 animated mascot
+//           y 137..270  the mascot, centered, fills the lower half
 //   action  (question, permission, "answer in the terminal") replaces the status view:
 //           y   0.. 36  icon + title, 38 rule, 44..113 prompt, 120..249 up to four options,
 //           y 252       hint
@@ -27,11 +27,7 @@ LV_FONT_DECLARE(eh_font_montserrat_20);
 #define CL_INNER_W (EH_DISPLAY_CONTENT_WIDTH - 2 * CL_PAD)
 #define CL_ICON EH_CLAUDE_ICON_SIZE
 #define CL_RULE_Y 135
-#define CL_TASK_Y 141
-#define CL_TASK_H 46
-#define CL_ACT_Y 189
-#define CL_ACT_H 20
-#define CL_MASCOT_Y 214
+#define CL_MASCOT_Y 152
 #define CL_LINE_Y 75
 #define CL_LINE_H 56
 #define CL_ASK_RULE_Y 38
@@ -43,9 +39,11 @@ LV_FONT_DECLARE(eh_font_montserrat_20);
 #define CL_OPT_STEP 33
 #define CL_HINT_Y 252
 
-// Mascot ("Clawd") geometry: a grid of CL_Q pixel squares, 17 columns wide.
-#define CL_Q 10
-#define CL_MASCOT_X 25
+// Mascot ("Clawd") geometry: a grid of CL_QX x CL_QY pixel cells, 17 columns wide, 5 rows high.
+// Columns 1..16 are used, so the figure is 16 * CL_QX = 192 px wide and centered in 230 px.
+#define CL_QX 12
+#define CL_QY 20
+#define CL_MASCOT_X 7
 #define CL_FRAME_MS 140
 #define CL_ORANGE 0xD97757
 
@@ -62,8 +60,6 @@ static lv_obj_t *label_limits;
 static lv_obj_t *label_week;
 static lv_obj_t *label_line;
 static lv_obj_t *head_rule;
-static lv_obj_t *label_task;
-static lv_obj_t *label_activity;
 
 // action view
 static lv_obj_t *icon_ask;
@@ -138,11 +134,11 @@ static void pose_mascot(int32_t frame) {
     bool       eyes = true;
     if (frame >= 0) {
         bool step = (frame % 4) < 2;
-        bob       = (frame & 1) ? -4 : 0;
-        arm_l     = step ? -5 : 0;
-        arm_r     = step ? 0 : -5;
-        leg_a     = step ? -4 : 0;
-        leg_b     = step ? 0 : -4;
+        bob       = (frame & 1) ? -6 : 0;
+        arm_l     = step ? -8 : 0;
+        arm_r     = step ? 0 : -8;
+        leg_a     = step ? -6 : 0;
+        leg_b     = step ? 0 : -6;
         eyes      = (frame % 22) != 21;
     }
     for (uint8_t i = 0; i < M_COUNT; i++) {
@@ -157,7 +153,7 @@ static void pose_mascot(int32_t frame) {
             case M_LEG2: dy = leg_a; break;
             default: dy = leg_b; break;
         }
-        lv_obj_set_y(mascot[i], CL_MASCOT_Y + mascot_y[i] * CL_Q + dy);
+        lv_obj_set_y(mascot[i], CL_MASCOT_Y + mascot_y[i] * CL_QY + dy);
     }
     lv_obj_set_style_bg_color(mascot[M_EYE_L], eyes ? lv_color_black() : lv_color_hex(CL_ORANGE), LV_PART_MAIN);
     lv_obj_set_style_bg_color(mascot[M_EYE_R], eyes ? lv_color_black() : lv_color_hex(CL_ORANGE), LV_PART_MAIN);
@@ -259,8 +255,6 @@ static void render(void) {
     set_hidden(label_week, !status);
     set_hidden(label_line, !status);
     set_hidden(head_rule, !status);
-    set_hidden(label_task, !status);
-    set_hidden(label_activity, !status);
     for (uint8_t i = 0; i < M_COUNT; i++) set_hidden(mascot[i], !status);
 
     // action view
@@ -275,8 +269,6 @@ static void render(void) {
         lv_label_set_text(label_limits, pad->limits);
         lv_label_set_text(label_week, pad->week);
         show_line(pad, busy);
-        lv_label_set_text(label_task, pad->task);
-        lv_label_set_text(label_activity, pad->prompt);
         if (!busy) pose_mascot(-1);
         for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) set_hidden(option_box[i], true);
     } else {
@@ -321,12 +313,10 @@ static void screen_claude_init(void) {
     label_week     = make_label(CL_PAD, 54, CL_INNER_W, 20, &eh_font_montserrat_16, lv_color_hex(0xB0B0B0));
     label_line     = make_label(CL_PAD, CL_LINE_Y, CL_INNER_W, CL_LINE_H, &eh_font_montserrat_16, lv_color_hex(CL_ORANGE));
     head_rule      = make_rect(content, CL_PAD, CL_RULE_Y, CL_INNER_W, 1, lv_color_hex(0x3A3A3A));
-    label_task     = make_label(CL_PAD, CL_TASK_Y, CL_INNER_W, CL_TASK_H, &eh_font_montserrat_20, lv_color_white());
-    label_activity = make_label(CL_PAD, CL_ACT_Y, CL_INNER_W, CL_ACT_H, &eh_font_montserrat_16, lv_color_hex(0x9A9A9A));
 
     for (uint8_t i = 0; i < M_COUNT; i++) {
         bool eye  = i == M_EYE_L || i == M_EYE_R;
-        mascot[i] = make_rect(content, CL_MASCOT_X + mascot_x[i] * CL_Q, CL_MASCOT_Y + mascot_y[i] * CL_Q, mascot_w[i] * CL_Q, mascot_h[i] * CL_Q,
+        mascot[i] = make_rect(content, CL_MASCOT_X + mascot_x[i] * CL_QX, CL_MASCOT_Y + mascot_y[i] * CL_QY, mascot_w[i] * CL_QX, mascot_h[i] * CL_QY,
                               eye ? lv_color_black() : lv_color_hex(CL_ORANGE));
     }
     // Eyes sit on top of the body.
