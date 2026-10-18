@@ -236,7 +236,7 @@ static void layout_header(eh_claude_pad_t *pad) {
 }
 
 static uint8_t current_view(const eh_claude_pad_t *pad) {
-    if (pad->mode == EH_CLAUDE_MODE_ASK && pad->opt_count >= 2) return VIEW_ASK;
+    if (pad->mode == EH_CLAUDE_MODE_ASK && pad->opt_count >= 2 && eh_claude_pad_ask_active()) return VIEW_ASK;
     if (pad->mode == EH_CLAUDE_MODE_WAIT && eh_claude_pad_wait_active()) return VIEW_WAIT;
     return VIEW_STATUS;
 }
@@ -361,7 +361,7 @@ static void screen_claude_housekeep(void) {
     eh_claude_pad_t *pad  = eh_claude_pad_get();
     bool             busy = eh_claude_pad_busy();
     uint8_t          view = current_view(pad);
-    if (pad->dirty || busy != shown_busy || view != shown_view) {
+    if ((pad->dirty && eh_claude_pad_text_settled()) || busy != shown_busy || view != shown_view) {
         pad->dirty = false;
         render();
     }

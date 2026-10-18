@@ -50,7 +50,7 @@
 
 // An ask request is dropped if the host stops talking to the device, so a
 // crashed hook can never leave the encoder captured.
-#define EH_CLAUDE_ASK_HOST_TIMEOUT_MS 15000
+#define EH_CLAUDE_ASK_HOST_TIMEOUT_MS 6000
 // The status screen stays eligible while the host updated it this recently.
 #define EH_CLAUDE_LIVE_TIMEOUT_MS 120000
 // A "waiting for you in the terminal" screen goes away on its own after this long.
@@ -96,6 +96,8 @@ bool eh_claude_pad_ask_active(void);
 bool eh_claude_pad_live(void);
 // True while the host reports that Claude is working (and keeps saying so).
 bool eh_claude_pad_busy(void);
+// False for a moment after a text chunk arrived, so a multi-chunk update is drawn once, complete.
+bool eh_claude_pad_text_settled(void);
 // True while a wait screen is showing.
 bool eh_claude_pad_wait_active(void);
 // Busy or waiting: the display should stay on.

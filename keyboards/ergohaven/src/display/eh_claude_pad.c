@@ -10,6 +10,7 @@ static uint32_t        last_status_rx;
 static uint32_t        last_busy_rx;
 static uint32_t        busy_since;
 static uint32_t        wait_since;
+static uint32_t        last_text_rx;
 static bool            host_seen;
 static bool            status_seen;
 
@@ -71,6 +72,7 @@ static bool process_set(uint8_t *data) {
         memcpy(buffer + offset, data + 4, len);
         buffer[offset + len] = '\0';
         pad.dirty            = true;
+        last_text_rx         = timer_read32();
         if (sub == 0) {
             status_seen   = true;
             last_status_rx = timer_read32();
@@ -168,6 +170,10 @@ bool eh_claude_pad_live(void) {
 
 bool eh_claude_pad_busy(void) {
     return pad.busy && timer_elapsed32(last_busy_rx) < EH_CLAUDE_BUSY_TIMEOUT_MS;
+}
+
+bool eh_claude_pad_text_settled(void) {
+    return timer_elapsed32(last_text_rx) > 60;
 }
 
 bool eh_claude_pad_wait_active(void) {
