@@ -245,7 +245,7 @@ void display_housekeeping_task(void) {
             case SCREEN_LAYOUT:
                 if (display_expired
 #ifdef EH_CLAUDE_PAD_ENABLE
-                    && !eh_claude_pad_busy()
+                    && !eh_claude_pad_keep_awake()
 #endif
                 ) {
                     change_screen_state = SCREEN_OFF;
@@ -263,7 +263,7 @@ void display_housekeeping_task(void) {
             case SCREEN_HOME:
                 if (display_expired && screen_elapsed > 1000
 #ifdef EH_CLAUDE_PAD_ENABLE
-                    && !eh_claude_pad_busy()
+                    && !eh_claude_pad_keep_awake()
 #endif
                 ) {
                     change_screen_state = SCREEN_OFF;
@@ -277,8 +277,8 @@ void display_housekeeping_task(void) {
 
 #ifdef EH_CLAUDE_PAD_ENABLE
             case SCREEN_CLAUDE:
-                if (eh_claude_pad_ask_active()) break;
-                if (display_expired && screen_elapsed > 1000 && !eh_claude_pad_busy()) {
+                if (eh_claude_pad_ask_active() || eh_claude_pad_wait_active()) break;
+                if (display_expired && screen_elapsed > 1000 && !eh_claude_pad_keep_awake()) {
                     change_screen_state = SCREEN_OFF;
                 } else if (!eh_claude_pad_live()) {
                     change_screen_state = SCREEN_HOME;
@@ -295,7 +295,7 @@ void display_housekeeping_task(void) {
             case SCREEN_OFF:
 #ifdef EH_CLAUDE_PAD_ENABLE
                 // Claude started working while the screen was off: show the animation.
-                if (eh_claude_pad_busy() && eh_claude_pad_live()) change_screen_state = SCREEN_CLAUDE;
+                if (eh_claude_pad_keep_awake() && eh_claude_pad_live()) change_screen_state = SCREEN_CLAUDE;
 #endif
                 break;
         }
@@ -307,6 +307,8 @@ void display_housekeeping_task(void) {
     if (eh_claude_pad_ask_active()) {
         last_user_activity_timer = timer_read32();
         change_screen_state      = SCREEN_CLAUDE;
+    } else if (eh_claude_pad_wait_active()) {
+        change_screen_state = SCREEN_CLAUDE;
     }
 #endif
 

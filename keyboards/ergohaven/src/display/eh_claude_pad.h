@@ -13,7 +13,9 @@
  *                    terminated right after it, so long strings are sent as
  *                    consecutive chunks with growing offsets.
  *   SET commit     : F0 10 <mode> <option_count> <selected> <id_lo> <id_hi>
- *                    mode 0 = idle (status + task), 1 = ask (prompt + options).
+ *                    mode 0 = idle (status + task), 1 = ask (prompt + options),
+ *                    2 = wait (title + prompt only, no input is captured).
+ *                    Fields 11 = title of the ask/wait screen.
  *   SET clear      : F0 11   back to idle, clears task/prompt/options/busy.
  *   SET busy       : F0 12 <0|1>   Claude is working (animation); expires
  *                    after EH_CLAUDE_BUSY_TIMEOUT_MS without a refresh.
@@ -41,7 +43,8 @@
 #define EH_CLAUDE_TASK_MAX 160
 #define EH_CLAUDE_PROMPT_MAX 112
 #define EH_CLAUDE_OPT_MAX 40
-#define EH_CLAUDE_LINE_MAX 48
+#define EH_CLAUDE_LINE_MAX 96
+#define EH_CLAUDE_TITLE_MAX 24
 #define EH_CLAUDE_LIMITS_MAX 40
 #define EH_CLAUDE_CTX_MAX 16
 
@@ -50,12 +53,15 @@
 #define EH_CLAUDE_ASK_HOST_TIMEOUT_MS 15000
 // The status screen stays eligible while the host updated it this recently.
 #define EH_CLAUDE_LIVE_TIMEOUT_MS 120000
+// A "waiting for you in the terminal" screen goes away on its own after this long.
+#define EH_CLAUDE_WAIT_TIMEOUT_MS 120000
 // The busy animation stops if the host does not refresh the flag.
 #define EH_CLAUDE_BUSY_TIMEOUT_MS 90000
 
 typedef enum {
     EH_CLAUDE_MODE_IDLE = 0,
     EH_CLAUDE_MODE_ASK  = 1,
+    EH_CLAUDE_MODE_WAIT = 2,   // message only: Claude waits for an answer given elsewhere
 } eh_claude_mode_t;
 
 typedef struct {
@@ -64,6 +70,7 @@ typedef struct {
     char     prompt[EH_CLAUDE_PROMPT_MAX];
     char     opt[EH_CLAUDE_MAX_OPTS][EH_CLAUDE_OPT_MAX];
     char     line[EH_CLAUDE_LINE_MAX];
+    char     title[EH_CLAUDE_TITLE_MAX];
     char     limits[EH_CLAUDE_LIMITS_MAX];
     char     week[EH_CLAUDE_LIMITS_MAX];
     char     ctx[EH_CLAUDE_CTX_MAX];
@@ -89,6 +96,10 @@ bool eh_claude_pad_ask_active(void);
 bool eh_claude_pad_live(void);
 // True while the host reports that Claude is working (and keeps saying so).
 bool eh_claude_pad_busy(void);
+// True while a wait screen is showing.
+bool eh_claude_pad_wait_active(void);
+// Busy or waiting: the display should stay on.
+bool eh_claude_pad_keep_awake(void);
 // Seconds since the current busy period started.
 uint32_t eh_claude_pad_busy_seconds(void);
 

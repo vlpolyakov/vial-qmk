@@ -9,6 +9,7 @@ static uint32_t        last_host_contact;
 static uint32_t        last_status_rx;
 static uint32_t        last_busy_rx;
 static uint32_t        busy_since;
+static uint32_t        wait_since;
 static bool            host_seen;
 static bool            status_seen;
 
@@ -39,6 +40,9 @@ static char *field_buffer(uint8_t field, size_t *capacity) {
         case 8:
             *capacity = sizeof pad.limits;
             return pad.limits;
+        case 11:
+            *capacity = sizeof pad.title;
+            return pad.title;
         case 9:
             *capacity = sizeof pad.week;
             return pad.week;
@@ -58,7 +62,7 @@ static void touch_host(void) {
 static bool process_set(uint8_t *data) {
     uint8_t sub = data[1];
 
-    if (sub <= 10) {
+    if (sub <= 11) {
         uint8_t offset = data[2];
         uint8_t len    = data[3];
         size_t  capacity;
@@ -77,13 +81,14 @@ static bool process_set(uint8_t *data) {
     if (sub == EH_CLAUDE_SUB_COMMIT) {
         uint8_t mode  = data[2];
         uint8_t count = data[3];
-        if (mode > EH_CLAUDE_MODE_ASK || count > EH_CLAUDE_MAX_OPTS) return false;
+        if (mode > EH_CLAUDE_MODE_WAIT || count > EH_CLAUDE_MAX_OPTS) return false;
         if (mode == EH_CLAUDE_MODE_ASK && count < 2) return false;
         uint16_t id = data[5] | ((uint16_t)data[6] << 8);
         if (mode == EH_CLAUDE_MODE_ASK && (pad.mode != EH_CLAUDE_MODE_ASK || pad.request_id != id)) {
             pad.answered = false;
             pad.answer   = 0;
         }
+        if (mode == EH_CLAUDE_MODE_WAIT && pad.mode != EH_CLAUDE_MODE_WAIT) wait_since = timer_read32();
         pad.mode       = mode;
         pad.opt_count  = count;
         pad.selected   = count > 0 && data[4] < count ? data[4] : 0;
@@ -108,6 +113,7 @@ static bool process_set(uint8_t *data) {
         pad.answered  = false;
         pad.task[0]   = '\0';
         pad.line[0]   = '\0';
+        pad.title[0]  = '\0';
         pad.prompt[0] = '\0';
         for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) pad.opt[i][0] = '\0';
         pad.dirty = true;
@@ -162,6 +168,14 @@ bool eh_claude_pad_live(void) {
 
 bool eh_claude_pad_busy(void) {
     return pad.busy && timer_elapsed32(last_busy_rx) < EH_CLAUDE_BUSY_TIMEOUT_MS;
+}
+
+bool eh_claude_pad_wait_active(void) {
+    return pad.mode == EH_CLAUDE_MODE_WAIT && timer_elapsed32(wait_since) < EH_CLAUDE_WAIT_TIMEOUT_MS;
+}
+
+bool eh_claude_pad_keep_awake(void) {
+    return eh_claude_pad_busy() || eh_claude_pad_wait_active();
 }
 
 uint32_t eh_claude_pad_busy_seconds(void) {

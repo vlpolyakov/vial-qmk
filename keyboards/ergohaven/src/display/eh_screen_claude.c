@@ -16,24 +16,32 @@ LV_FONT_DECLARE(eh_font_montserrat_20);
 // All coordinates are relative to the safe content area (230 x 270), which keeps
 // text away from the bezel that hides the outermost pixels of the panel.
 //
-//   header   y   0.. 97  icon + model + context, 5h limit, weekly limit, task status line
-//   idle     y 103..172  current task, 176..196 current activity, 208..268 animated mascot
-//   ask      header shrinks to its first row: y 62..132 question, 136..265 up to four options
+// Two views share the screen:
+//   status  y   0..131  icon + model + context, 5h limit, weekly limit, task status (up to 3 lines)
+//           y 135       rule
+//           y 141..187  current task, 189..209 current activity, 214..264 animated mascot
+//   action  (question, permission, "answer in the terminal") replaces the status view:
+//           y   0.. 36  icon + title, 38 rule, 44..113 prompt, 120..249 up to four options,
+//           y 252       hint
 #define CL_PAD 10
 #define CL_INNER_W (EH_DISPLAY_CONTENT_WIDTH - 2 * CL_PAD)
 #define CL_ICON EH_CLAUDE_ICON_SIZE
-#define CL_RULE_Y_IDLE 97
-#define CL_RULE_Y_ASK 56
-#define CL_TASK_Y 103
-#define CL_TASK_H 69
-#define CL_ACT_Y 176
+#define CL_RULE_Y 135
+#define CL_TASK_Y 141
+#define CL_TASK_H 46
+#define CL_ACT_Y 189
 #define CL_ACT_H 20
-#define CL_MASCOT_Y 208
-#define CL_PROMPT_Y 62
+#define CL_MASCOT_Y 214
+#define CL_LINE_Y 75
+#define CL_LINE_H 56
+#define CL_ASK_RULE_Y 38
+#define CL_PROMPT_Y 44
 #define CL_PROMPT_H 70
-#define CL_OPT_Y 136
+#define CL_PROMPT_WAIT_H 150
+#define CL_OPT_Y 120
 #define CL_OPT_H 30
 #define CL_OPT_STEP 33
+#define CL_HINT_Y 252
 
 // Mascot ("Clawd") geometry: a grid of CL_Q pixel squares, 17 columns wide.
 #define CL_Q 10
@@ -41,8 +49,12 @@ LV_FONT_DECLARE(eh_font_montserrat_20);
 #define CL_FRAME_MS 140
 #define CL_ORANGE 0xD97757
 
+enum { VIEW_STATUS, VIEW_ASK, VIEW_WAIT };
+
 static lv_obj_t *screen_claude;
 static lv_obj_t *content;
+
+// status view
 static lv_obj_t *icon_claude;
 static lv_obj_t *label_model;
 static lv_obj_t *label_ctx;
@@ -52,7 +64,13 @@ static lv_obj_t *label_line;
 static lv_obj_t *head_rule;
 static lv_obj_t *label_task;
 static lv_obj_t *label_activity;
+
+// action view
+static lv_obj_t *icon_ask;
+static lv_obj_t *label_title;
+static lv_obj_t *ask_rule;
 static lv_obj_t *label_prompt;
+static lv_obj_t *label_hint;
 static lv_obj_t *option_box[EH_CLAUDE_MAX_OPTS];
 static lv_obj_t *option_label[EH_CLAUDE_MAX_OPTS];
 
@@ -63,8 +81,10 @@ static const lv_coord_t mascot_y[M_COUNT] = {0, 2, 2, 1, 1, 4, 4, 4, 4};
 static const lv_coord_t mascot_w[M_COUNT] = {12, 2, 2, 1, 1, 1, 1, 1, 1};
 static const lv_coord_t mascot_h[M_COUNT] = {4, 1, 1, 1, 1, 1, 1, 1, 1};
 
+static uint8_t  shown_view = 0xFF;
 static bool     shown_busy;
-static uint32_t shown_frame = UINT32_MAX;
+static uint32_t shown_frame   = UINT32_MAX;
+static uint32_t shown_seconds = UINT32_MAX;
 
 static lv_img_dsc_t claude_icon_dsc;
 
@@ -94,6 +114,21 @@ static lv_obj_t *make_rect(lv_obj_t *parent, lv_coord_t x, lv_coord_t y, lv_coor
     lv_obj_set_style_bg_color(r, color, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(r, LV_OPA_COVER, LV_PART_MAIN);
     return r;
+}
+
+static lv_obj_t *make_icon(lv_coord_t x, lv_coord_t y) {
+    lv_obj_t *icon = lv_img_create(content);
+    lv_img_set_src(icon, &claude_icon_dsc);
+    lv_obj_set_style_img_recolor(icon, lv_color_hex(CL_ORANGE), 0);
+    lv_obj_set_style_img_recolor_opa(icon, LV_OPA_COVER, 0);
+    lv_obj_set_pos(icon, x, y);
+    return icon;
+}
+
+static lv_coord_t text_width(const char *text, const lv_font_t *font) {
+    lv_point_t size;
+    lv_txt_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return size.x;
 }
 
 // frame < 0 is the resting pose; otherwise one step of the working animation:
@@ -133,44 +168,132 @@ static void style_option(uint8_t index, bool selected) {
     lv_obj_set_style_text_color(option_label[index], selected ? lv_color_black() : lv_color_white(), LV_PART_MAIN);
 }
 
+static char *put_uint(char *p, uint32_t v) {
+    char    digits[11];
+    uint8_t n = 0;
+    do {
+        digits[n++] = (char)('0' + v % 10);
+        v /= 10;
+    } while (v > 0);
+    while (n > 0) *p++ = digits[--n];
+    return p;
+}
+
+// The host sends the task status with a "{t}" placeholder where the live elapsed time goes
+// ("Proofing... ({t} * 3.1k tokens)"), so the clock keeps running between host updates.
+static void show_line(eh_claude_pad_t *pad, bool busy) {
+    const char *src = pad->line;
+    const char *ph  = busy ? strstr(src, "{t}") : NULL;
+    if (ph == NULL) {
+        lv_label_set_text(label_line, src);
+        shown_seconds = UINT32_MAX;
+        return;
+    }
+    char     buf[EH_CLAUDE_LINE_MAX + 16];
+    char    *p = buf;
+    uint32_t sec = eh_claude_pad_busy_seconds();
+    size_t   head = (size_t)(ph - src);
+    memcpy(p, src, head);
+    p += head;
+    if (sec >= 3600) {
+        p = put_uint(p, sec / 3600);
+        *p++ = 'h';
+        *p++ = ' ';
+        sec %= 3600;
+        p = put_uint(p, sec / 60);
+        *p++ = 'm';
+    } else if (sec >= 60) {
+        p = put_uint(p, sec / 60);
+        *p++ = 'm';
+        *p++ = ' ';
+        if (sec % 60 < 10) *p++ = '0';
+        p = put_uint(p, sec % 60);
+        *p++ = 's';
+    } else {
+        p = put_uint(p, sec);
+        *p++ = 's';
+    }
+    strcpy(p, ph + 3);
+    lv_label_set_text(label_line, buf);
+    shown_seconds = eh_claude_pad_busy_seconds();
+}
+
+static void layout_header(eh_claude_pad_t *pad) {
+    const char *model = pad->status[0] ? pad->status : "Claude Code";
+    lv_coord_t  left  = CL_PAD + CL_ICON + 6;
+    lv_coord_t  avail = EH_DISPLAY_CONTENT_WIDTH - CL_PAD - left;
+    lv_coord_t  cw    = pad->ctx[0] ? text_width(pad->ctx, &eh_font_montserrat_16) : 0;
+    lv_coord_t  gap   = cw > 0 ? 10 : 0;
+    bool        big   = text_width(model, &eh_font_montserrat_20) + gap + cw <= avail;
+    const lv_font_t *font = big ? &eh_font_montserrat_20 : &eh_font_montserrat_16;
+    lv_coord_t  mw    = text_width(model, font) + 2;
+    if (mw > avail - gap - cw) mw = avail - gap - cw;
+
+    lv_label_set_text(label_model, model);
+    lv_obj_set_style_text_font(label_model, font, LV_PART_MAIN);
+    lv_obj_set_pos(label_model, left, big ? 5 : 8);
+    lv_obj_set_size(label_model, mw, big ? 26 : 20);
+
+    lv_label_set_text(label_ctx, pad->ctx);
+    lv_obj_set_pos(label_ctx, left + mw + gap, 8);
+    lv_obj_set_size(label_ctx, cw + 4, 20);
+}
+
+static uint8_t current_view(const eh_claude_pad_t *pad) {
+    if (pad->mode == EH_CLAUDE_MODE_ASK && pad->opt_count >= 2) return VIEW_ASK;
+    if (pad->mode == EH_CLAUDE_MODE_WAIT && eh_claude_pad_wait_active()) return VIEW_WAIT;
+    return VIEW_STATUS;
+}
+
 static void render(void) {
     eh_claude_pad_t *pad  = eh_claude_pad_get();
-    bool             ask  = pad->mode == EH_CLAUDE_MODE_ASK && pad->opt_count >= 2;
+    uint8_t          view = current_view(pad);
     bool             busy = eh_claude_pad_busy();
+    bool             status = view == VIEW_STATUS;
 
-    lv_label_set_text(label_model, pad->status[0] ? pad->status : "Claude Code");
-    lv_label_set_text(label_ctx, pad->ctx);
-    lv_label_set_text(label_limits, pad->limits);
-    lv_label_set_text(label_week, pad->week);
-    lv_label_set_text(label_line, pad->line);
-    lv_obj_set_y(head_rule, ask ? CL_RULE_Y_ASK : CL_RULE_Y_IDLE);
-    set_hidden(label_limits, ask);
-    set_hidden(label_week, ask);
-    set_hidden(label_line, ask);
+    // status view
+    set_hidden(icon_claude, !status);
+    set_hidden(label_model, !status);
+    set_hidden(label_ctx, !status);
+    set_hidden(label_limits, !status);
+    set_hidden(label_week, !status);
+    set_hidden(label_line, !status);
+    set_hidden(head_rule, !status);
+    set_hidden(label_task, !status);
+    set_hidden(label_activity, !status);
+    for (uint8_t i = 0; i < M_COUNT; i++) set_hidden(mascot[i], !status);
 
-    if (ask) {
-        set_hidden(label_task, true);
-        set_hidden(label_activity, true);
-        for (uint8_t i = 0; i < M_COUNT; i++) set_hidden(mascot[i], true);
-        set_hidden(label_prompt, false);
+    // action view
+    set_hidden(icon_ask, status);
+    set_hidden(label_title, status);
+    set_hidden(ask_rule, status);
+    set_hidden(label_prompt, status);
+    set_hidden(label_hint, status);
+
+    if (status) {
+        layout_header(pad);
+        lv_label_set_text(label_limits, pad->limits);
+        lv_label_set_text(label_week, pad->week);
+        show_line(pad, busy);
+        lv_label_set_text(label_task, pad->task);
+        lv_label_set_text(label_activity, pad->prompt);
+        if (!busy) pose_mascot(-1);
+        for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) set_hidden(option_box[i], true);
+    } else {
+        bool ask = view == VIEW_ASK;
+        lv_label_set_text(label_title, pad->title[0] ? pad->title : (ask ? "Вопрос" : "Ожидание"));
+        lv_obj_set_height(label_prompt, ask ? CL_PROMPT_H : CL_PROMPT_WAIT_H);
         lv_label_set_text(label_prompt, pad->prompt);
+        lv_label_set_text(label_hint, ask ? "Ручка: выбор, нажатие: OK" : "Ответьте в терминале");
         for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) {
-            bool used = i < pad->opt_count;
+            bool used = ask && i < pad->opt_count;
             set_hidden(option_box[i], !used);
             if (!used) continue;
             lv_label_set_text(option_label[i], pad->opt[i]);
             style_option(i, i == pad->selected);
         }
-    } else {
-        set_hidden(label_task, false);
-        set_hidden(label_activity, false);
-        set_hidden(label_prompt, true);
-        for (uint8_t i = 0; i < M_COUNT; i++) set_hidden(mascot[i], false);
-        for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) set_hidden(option_box[i], true);
-        lv_label_set_text(label_task, pad->task);
-        lv_label_set_text(label_activity, pad->prompt);
-        if (!busy) pose_mascot(-1);
     }
+    shown_view  = view;
     shown_busy  = busy;
     shown_frame = UINT32_MAX;
 }
@@ -189,24 +312,17 @@ static void screen_claude_init(void) {
         .data_size          = sizeof(eh_claude_icon_bits),
         .data               = eh_claude_icon_bits,
     };
-    icon_claude = lv_img_create(content);
-    lv_img_set_src(icon_claude, &claude_icon_dsc);
-    lv_obj_set_style_img_recolor(icon_claude, lv_color_hex(CL_ORANGE), 0);
-    lv_obj_set_style_img_recolor_opa(icon_claude, LV_OPA_COVER, 0);
-    lv_obj_set_pos(icon_claude, CL_PAD, 6);
 
-    lv_coord_t model_x = CL_PAD + CL_ICON + 8;
-    label_model        = make_label(model_x, 5, 112, 26, &eh_font_montserrat_20, accent_color_blue);
-    label_ctx          = make_label(model_x + 112, 9, EH_DISPLAY_CONTENT_WIDTH - model_x - 112 - CL_PAD, 20, &eh_font_montserrat_16, lv_color_hex(0xC8C8C8));
-    lv_obj_set_style_text_align(label_ctx, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-    label_limits       = make_label(CL_PAD, 33, CL_INNER_W, 20, &eh_font_montserrat_16, lv_color_hex(0xB0B0B0));
-    label_week         = make_label(CL_PAD, 54, CL_INNER_W, 20, &eh_font_montserrat_16, lv_color_hex(0xB0B0B0));
-    label_line         = make_label(CL_PAD, 75, CL_INNER_W, 20, &eh_font_montserrat_16, lv_color_hex(CL_ORANGE));
-    head_rule          = make_rect(content, CL_PAD, CL_RULE_Y_IDLE, CL_INNER_W, 1, lv_color_hex(0x3A3A3A));
-
+    // status view
+    icon_claude    = make_icon(CL_PAD, 6);
+    label_model    = make_label(CL_PAD + CL_ICON + 6, 5, 100, 26, &eh_font_montserrat_20, accent_color_blue);
+    label_ctx      = make_label(CL_PAD + CL_ICON + 110, 8, 70, 20, &eh_font_montserrat_16, lv_color_hex(0xC8C8C8));
+    label_limits   = make_label(CL_PAD, 33, CL_INNER_W, 20, &eh_font_montserrat_16, lv_color_hex(0xB0B0B0));
+    label_week     = make_label(CL_PAD, 54, CL_INNER_W, 20, &eh_font_montserrat_16, lv_color_hex(0xB0B0B0));
+    label_line     = make_label(CL_PAD, CL_LINE_Y, CL_INNER_W, CL_LINE_H, &eh_font_montserrat_16, lv_color_hex(CL_ORANGE));
+    head_rule      = make_rect(content, CL_PAD, CL_RULE_Y, CL_INNER_W, 1, lv_color_hex(0x3A3A3A));
     label_task     = make_label(CL_PAD, CL_TASK_Y, CL_INNER_W, CL_TASK_H, &eh_font_montserrat_20, lv_color_white());
     label_activity = make_label(CL_PAD, CL_ACT_Y, CL_INNER_W, CL_ACT_H, &eh_font_montserrat_16, lv_color_hex(0x9A9A9A));
-    label_prompt   = make_label(CL_PAD, CL_PROMPT_Y, CL_INNER_W, CL_PROMPT_H, &eh_font_montserrat_20, lv_color_white());
 
     for (uint8_t i = 0; i < M_COUNT; i++) {
         bool eye  = i == M_EYE_L || i == M_EYE_R;
@@ -216,6 +332,13 @@ static void screen_claude_init(void) {
     // Eyes sit on top of the body.
     lv_obj_move_foreground(mascot[M_EYE_L]);
     lv_obj_move_foreground(mascot[M_EYE_R]);
+
+    // action view
+    icon_ask     = make_icon(CL_PAD, 6);
+    label_title  = make_label(CL_PAD + CL_ICON + 6, 5, EH_DISPLAY_CONTENT_WIDTH - CL_PAD - (CL_PAD + CL_ICON + 6), 26, &eh_font_montserrat_20, accent_color_blue);
+    ask_rule     = make_rect(content, CL_PAD, CL_ASK_RULE_Y, CL_INNER_W, 1, lv_color_hex(0x3A3A3A));
+    label_prompt = make_label(CL_PAD, CL_PROMPT_Y, CL_INNER_W, CL_PROMPT_H, &eh_font_montserrat_20, lv_color_white());
+    label_hint   = make_label(CL_PAD, CL_HINT_Y, CL_INNER_W, 18, &eh_font_montserrat_16, lv_color_hex(0x707070));
 
     for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) {
         option_box[i] = lv_obj_create(content);
@@ -235,7 +358,6 @@ static void screen_claude_init(void) {
         style_option(i, false);
         set_hidden(option_box[i], true);
     }
-    set_hidden(label_prompt, true);
 }
 
 static void screen_claude_load(void) {
@@ -246,13 +368,16 @@ static void screen_claude_load(void) {
 }
 
 static void screen_claude_housekeep(void) {
-    eh_claude_pad_t *pad = eh_claude_pad_get();
-    bool busy = eh_claude_pad_busy();
-    if (pad->dirty || busy != shown_busy) {
+    eh_claude_pad_t *pad  = eh_claude_pad_get();
+    bool             busy = eh_claude_pad_busy();
+    uint8_t          view = current_view(pad);
+    if (pad->dirty || busy != shown_busy || view != shown_view) {
         pad->dirty = false;
         render();
     }
-    if (busy && pad->mode != EH_CLAUDE_MODE_ASK) {
+    if (view != VIEW_STATUS) return;
+    if (busy) {
+        if (eh_claude_pad_busy_seconds() != shown_seconds) show_line(pad, true);
         uint32_t frame = timer_read32() / CL_FRAME_MS;
         if (frame != shown_frame) {
             shown_frame = frame;
