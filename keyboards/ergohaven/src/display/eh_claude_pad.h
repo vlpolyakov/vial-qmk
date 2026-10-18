@@ -18,8 +18,9 @@
  *   SET busy       : F0 12 <0|1>   Claude is working (animation); expires
  *                    after EH_CLAUDE_BUSY_TIMEOUT_MS without a refresh.
  *   In idle mode the "prompt" field is shown as the current activity.
- *   Fields 7 and 8 are the second header line (task status, shown instead
- *   of the live timer when Claude is not busy) and the limits line.
+ *   Header fields: 0 model, 10 context ("Ctx: 14%"), 8 five-hour limit line,
+ *   9 weekly limit line, 7 task status line ("Caramelising... 22 000 tokens"
+ *   while busy, "Cooked for 8s * done 23:48" afterwards).
  *   POLL           : F1 <flags> <id_lo> <id_hi>    flags bit0 = acknowledge
  *                    the answer of request <id>.
  *
@@ -41,7 +42,8 @@
 #define EH_CLAUDE_PROMPT_MAX 112
 #define EH_CLAUDE_OPT_MAX 40
 #define EH_CLAUDE_LINE_MAX 48
-#define EH_CLAUDE_LIMITS_MAX 32
+#define EH_CLAUDE_LIMITS_MAX 40
+#define EH_CLAUDE_CTX_MAX 16
 
 // An ask request is dropped if the host stops talking to the device, so a
 // crashed hook can never leave the encoder captured.
@@ -63,6 +65,8 @@ typedef struct {
     char     opt[EH_CLAUDE_MAX_OPTS][EH_CLAUDE_OPT_MAX];
     char     line[EH_CLAUDE_LINE_MAX];
     char     limits[EH_CLAUDE_LIMITS_MAX];
+    char     week[EH_CLAUDE_LIMITS_MAX];
+    char     ctx[EH_CLAUDE_CTX_MAX];
     uint8_t  mode;
     uint8_t  opt_count;
     uint8_t  selected;

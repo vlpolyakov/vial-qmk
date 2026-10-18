@@ -39,6 +39,12 @@ static char *field_buffer(uint8_t field, size_t *capacity) {
         case 8:
             *capacity = sizeof pad.limits;
             return pad.limits;
+        case 9:
+            *capacity = sizeof pad.week;
+            return pad.week;
+        case 10:
+            *capacity = sizeof pad.ctx;
+            return pad.ctx;
         default:
             return NULL;
     }
@@ -52,7 +58,7 @@ static void touch_host(void) {
 static bool process_set(uint8_t *data) {
     uint8_t sub = data[1];
 
-    if (sub <= 8) {
+    if (sub <= 10) {
         uint8_t offset = data[2];
         uint8_t len    = data[3];
         size_t  capacity;
