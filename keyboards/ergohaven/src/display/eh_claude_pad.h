@@ -18,6 +18,8 @@
  *   SET busy       : F0 12 <0|1>   Claude is working (animation); expires
  *                    after EH_CLAUDE_BUSY_TIMEOUT_MS without a refresh.
  *   In idle mode the "prompt" field is shown as the current activity.
+ *   Fields 7 and 8 are the second header line (task status, shown instead
+ *   of the live timer when Claude is not busy) and the limits line.
  *   POLL           : F1 <flags> <id_lo> <id_hi>    flags bit0 = acknowledge
  *                    the answer of request <id>.
  *
@@ -38,6 +40,8 @@
 #define EH_CLAUDE_TASK_MAX 160
 #define EH_CLAUDE_PROMPT_MAX 112
 #define EH_CLAUDE_OPT_MAX 40
+#define EH_CLAUDE_LINE_MAX 48
+#define EH_CLAUDE_LIMITS_MAX 32
 
 // An ask request is dropped if the host stops talking to the device, so a
 // crashed hook can never leave the encoder captured.
@@ -57,6 +61,8 @@ typedef struct {
     char     task[EH_CLAUDE_TASK_MAX];
     char     prompt[EH_CLAUDE_PROMPT_MAX];
     char     opt[EH_CLAUDE_MAX_OPTS][EH_CLAUDE_OPT_MAX];
+    char     line[EH_CLAUDE_LINE_MAX];
+    char     limits[EH_CLAUDE_LIMITS_MAX];
     uint8_t  mode;
     uint8_t  opt_count;
     uint8_t  selected;
@@ -79,6 +85,8 @@ bool eh_claude_pad_ask_active(void);
 bool eh_claude_pad_live(void);
 // True while the host reports that Claude is working (and keeps saying so).
 bool eh_claude_pad_busy(void);
+// Seconds since the current busy period started.
+uint32_t eh_claude_pad_busy_seconds(void);
 
 void eh_claude_pad_encoder(bool clockwise);
 void eh_claude_pad_click(void);

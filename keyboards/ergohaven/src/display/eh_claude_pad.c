@@ -8,6 +8,7 @@ static eh_claude_pad_t pad;
 static uint32_t        last_host_contact;
 static uint32_t        last_status_rx;
 static uint32_t        last_busy_rx;
+static uint32_t        busy_since;
 static bool            host_seen;
 static bool            status_seen;
 
@@ -32,6 +33,12 @@ static char *field_buffer(uint8_t field, size_t *capacity) {
         case 6:
             *capacity = sizeof pad.opt[0];
             return pad.opt[field - 3];
+        case 7:
+            *capacity = sizeof pad.line;
+            return pad.line;
+        case 8:
+            *capacity = sizeof pad.limits;
+            return pad.limits;
         default:
             return NULL;
     }
@@ -45,7 +52,7 @@ static void touch_host(void) {
 static bool process_set(uint8_t *data) {
     uint8_t sub = data[1];
 
-    if (sub <= 6) {
+    if (sub <= 8) {
         uint8_t offset = data[2];
         uint8_t len    = data[3];
         size_t  capacity;
@@ -80,6 +87,7 @@ static bool process_set(uint8_t *data) {
     }
 
     if (sub == EH_CLAUDE_SUB_BUSY) {
+        if (data[2] != 0 && !eh_claude_pad_busy()) busy_since = timer_read32();
         pad.busy     = data[2] != 0;
         last_busy_rx = timer_read32();
         pad.dirty    = true;
@@ -93,6 +101,7 @@ static bool process_set(uint8_t *data) {
         pad.selected  = 0;
         pad.answered  = false;
         pad.task[0]   = '\0';
+        pad.line[0]   = '\0';
         pad.prompt[0] = '\0';
         for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) pad.opt[i][0] = '\0';
         pad.dirty = true;
@@ -147,6 +156,10 @@ bool eh_claude_pad_live(void) {
 
 bool eh_claude_pad_busy(void) {
     return pad.busy && timer_elapsed32(last_busy_rx) < EH_CLAUDE_BUSY_TIMEOUT_MS;
+}
+
+uint32_t eh_claude_pad_busy_seconds(void) {
+    return timer_elapsed32(busy_since) / 1000;
 }
 
 void eh_claude_pad_encoder(bool clockwise) {
