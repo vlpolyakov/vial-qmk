@@ -14,7 +14,10 @@
  *                    consecutive chunks with growing offsets.
  *   SET commit     : F0 10 <mode> <option_count> <selected> <id_lo> <id_hi>
  *                    mode 0 = idle (status + task), 1 = ask (prompt + options).
- *   SET clear      : F0 11   back to idle, clears task/prompt/options.
+ *   SET clear      : F0 11   back to idle, clears task/prompt/options/busy.
+ *   SET busy       : F0 12 <0|1>   Claude is working (animation); expires
+ *                    after EH_CLAUDE_BUSY_TIMEOUT_MS without a refresh.
+ *   In idle mode the "prompt" field is shown as the current activity.
  *   POLL           : F1 <flags> <id_lo> <id_hi>    flags bit0 = acknowledge
  *                    the answer of request <id>.
  *
@@ -28,6 +31,7 @@
 #define EH_CLAUDE_CMD_POLL 0xF1
 #define EH_CLAUDE_SUB_COMMIT 0x10
 #define EH_CLAUDE_SUB_CLEAR 0x11
+#define EH_CLAUDE_SUB_BUSY 0x12
 
 #define EH_CLAUDE_MAX_OPTS 4
 #define EH_CLAUDE_STATUS_MAX 48
@@ -40,6 +44,8 @@
 #define EH_CLAUDE_ASK_HOST_TIMEOUT_MS 15000
 // The status screen stays eligible while the host updated it this recently.
 #define EH_CLAUDE_LIVE_TIMEOUT_MS 120000
+// The busy animation stops if the host does not refresh the flag.
+#define EH_CLAUDE_BUSY_TIMEOUT_MS 90000
 
 typedef enum {
     EH_CLAUDE_MODE_IDLE = 0,
@@ -56,6 +62,7 @@ typedef struct {
     uint8_t  selected;
     uint8_t  answer;
     uint16_t request_id;
+    bool     busy;
     bool     answered;
     bool     dirty;
 } eh_claude_pad_t;
@@ -70,6 +77,8 @@ bool eh_claude_pad_process_hid(uint8_t *data, uint8_t length);
 bool eh_claude_pad_ask_active(void);
 // True while the host keeps the status screen fresh.
 bool eh_claude_pad_live(void);
+// True while the host reports that Claude is working (and keeps saying so).
+bool eh_claude_pad_busy(void);
 
 void eh_claude_pad_encoder(bool clockwise);
 void eh_claude_pad_click(void);

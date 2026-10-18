@@ -7,6 +7,7 @@
 static eh_claude_pad_t pad;
 static uint32_t        last_host_contact;
 static uint32_t        last_status_rx;
+static uint32_t        last_busy_rx;
 static bool            host_seen;
 static bool            status_seen;
 
@@ -78,7 +79,15 @@ static bool process_set(uint8_t *data) {
         return true;
     }
 
+    if (sub == EH_CLAUDE_SUB_BUSY) {
+        pad.busy     = data[2] != 0;
+        last_busy_rx = timer_read32();
+        pad.dirty    = true;
+        return true;
+    }
+
     if (sub == EH_CLAUDE_SUB_CLEAR) {
+        pad.busy      = false;
         pad.mode      = EH_CLAUDE_MODE_IDLE;
         pad.opt_count = 0;
         pad.selected  = 0;
@@ -134,6 +143,10 @@ bool eh_claude_pad_ask_active(void) {
 
 bool eh_claude_pad_live(void) {
     return status_seen && timer_elapsed32(last_status_rx) < EH_CLAUDE_LIVE_TIMEOUT_MS;
+}
+
+bool eh_claude_pad_busy(void) {
+    return pad.busy && timer_elapsed32(last_busy_rx) < EH_CLAUDE_BUSY_TIMEOUT_MS;
 }
 
 void eh_claude_pad_encoder(bool clockwise) {

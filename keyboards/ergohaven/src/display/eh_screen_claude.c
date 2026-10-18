@@ -2,7 +2,10 @@
 #include <lvgl.h>
 
 #include "ergohaven.h"
+#include <string.h>
+
 #include "lvgl_helpers.h"
+#include "timer.h"
 #include "eh_claude_pad.h"
 #include "eh_claude_icon.h"
 #include "eh_display_bounds.h"
@@ -12,24 +15,51 @@ LV_FONT_DECLARE(eh_font_montserrat_20);
 
 // All coordinates are relative to the safe content area (230 x 270), which keeps
 // text away from the bezel that hides the outermost pixels of the panel.
+//
+//   header   y   0.. 56  icon + model (line 1), limits (line 2)
+//   idle     y  62..154  current task, 158..196 current activity, 204..264 animated mascot
+//   ask      y  62..132  question, 136..265 up to four options
 #define CL_PAD 10
 #define CL_INNER_W (EH_DISPLAY_CONTENT_WIDTH - 2 * CL_PAD)
 #define CL_ICON EH_CLAUDE_ICON_SIZE
-#define CL_HEAD_H 42
-#define CL_BODY_Y (CL_HEAD_H + 6)
-#define CL_PROMPT_H 72
-#define CL_OPT_Y (CL_BODY_Y + CL_PROMPT_H + 6)
-#define CL_OPT_H 32
-#define CL_OPT_STEP 35
+#define CL_HEAD_RULE_Y 56
+#define CL_BODY_Y 62
+#define CL_TASK_H 92
+#define CL_ACT_Y 158
+#define CL_ACT_H 38
+#define CL_MASCOT_Y 204
+#define CL_PROMPT_H 70
+#define CL_OPT_Y 136
+#define CL_OPT_H 30
+#define CL_OPT_STEP 33
+
+// Mascot ("Clawd") geometry: a grid of CL_Q pixel squares, 17 columns wide.
+#define CL_Q 10
+#define CL_MASCOT_X 25
+#define CL_FRAME_MS 140
+#define CL_ORANGE 0xD97757
 
 static lv_obj_t *screen_claude;
 static lv_obj_t *content;
 static lv_obj_t *icon_claude;
-static lv_obj_t *label_status;
+static lv_obj_t *label_model;
+static lv_obj_t *label_limits;
+static lv_obj_t *head_rule;
 static lv_obj_t *label_task;
+static lv_obj_t *label_activity;
 static lv_obj_t *label_prompt;
 static lv_obj_t *option_box[EH_CLAUDE_MAX_OPTS];
 static lv_obj_t *option_label[EH_CLAUDE_MAX_OPTS];
+
+enum { M_BODY, M_ARM_L, M_ARM_R, M_EYE_L, M_EYE_R, M_LEG0, M_LEG1, M_LEG2, M_LEG3, M_COUNT };
+static lv_obj_t *mascot[M_COUNT];
+static const lv_coord_t mascot_x[M_COUNT] = {3, 1, 15, 5, 12, 4, 6, 11, 13};
+static const lv_coord_t mascot_y[M_COUNT] = {0, 2, 2, 1, 1, 4, 4, 4, 4};
+static const lv_coord_t mascot_w[M_COUNT] = {12, 2, 2, 1, 1, 1, 1, 1, 1};
+static const lv_coord_t mascot_h[M_COUNT] = {4, 1, 1, 1, 1, 1, 1, 1, 1};
+
+static bool     shown_busy;
+static uint32_t shown_frame = UINT32_MAX;
 
 static lv_img_dsc_t claude_icon_dsc;
 
@@ -51,19 +81,79 @@ static void set_hidden(lv_obj_t *obj, bool hidden) {
     }
 }
 
+static lv_obj_t *make_rect(lv_obj_t *parent, lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_t h, lv_color_t color) {
+    lv_obj_t *r = lv_obj_create(parent);
+    lv_obj_remove_style_all(r);
+    lv_obj_set_size(r, w, h);
+    lv_obj_set_pos(r, x, y);
+    lv_obj_set_style_bg_color(r, color, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(r, LV_OPA_COVER, LV_PART_MAIN);
+    return r;
+}
+
+// frame < 0 is the resting pose; otherwise one step of the working animation:
+// the body bobs, arms and leg pairs swing in turns, the eyes blink now and then.
+static void pose_mascot(int32_t frame) {
+    lv_coord_t bob = 0, arm_l = 0, arm_r = 0, leg_a = 0, leg_b = 0;
+    bool       eyes = true;
+    if (frame >= 0) {
+        bool step = (frame % 4) < 2;
+        bob       = (frame & 1) ? -4 : 0;
+        arm_l     = step ? -5 : 0;
+        arm_r     = step ? 0 : -5;
+        leg_a     = step ? -4 : 0;
+        leg_b     = step ? 0 : -4;
+        eyes      = (frame % 22) != 21;
+    }
+    for (uint8_t i = 0; i < M_COUNT; i++) {
+        lv_coord_t dy = 0;
+        switch (i) {
+            case M_BODY:
+            case M_EYE_L:
+            case M_EYE_R: dy = bob; break;
+            case M_ARM_L: dy = bob + arm_l; break;
+            case M_ARM_R: dy = bob + arm_r; break;
+            case M_LEG0:
+            case M_LEG2: dy = leg_a; break;
+            default: dy = leg_b; break;
+        }
+        lv_obj_set_y(mascot[i], CL_MASCOT_Y + mascot_y[i] * CL_Q + dy);
+    }
+    lv_obj_set_style_bg_color(mascot[M_EYE_L], eyes ? lv_color_black() : lv_color_hex(CL_ORANGE), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(mascot[M_EYE_R], eyes ? lv_color_black() : lv_color_hex(CL_ORANGE), LV_PART_MAIN);
+}
+
 static void style_option(uint8_t index, bool selected) {
     lv_obj_set_style_bg_color(option_box[index], selected ? accent_color_blue : lv_color_hex(0x2B2B2B), LV_PART_MAIN);
     lv_obj_set_style_text_color(option_label[index], selected ? lv_color_black() : lv_color_white(), LV_PART_MAIN);
 }
 
 static void render(void) {
-    eh_claude_pad_t *pad = eh_claude_pad_get();
-    bool             ask = pad->mode == EH_CLAUDE_MODE_ASK && pad->opt_count >= 2;
+    eh_claude_pad_t *pad  = eh_claude_pad_get();
+    bool             ask  = pad->mode == EH_CLAUDE_MODE_ASK && pad->opt_count >= 2;
+    bool             busy = eh_claude_pad_busy();
 
-    lv_label_set_text(label_status, pad->status[0] ? pad->status : "Claude Code");
+    // Status: "model\nlimits" (the limits line is optional).
+    char        model[EH_CLAUDE_STATUS_MAX];
+    const char *limits = "";
+    const char *nl     = strchr(pad->status, '\n');
+    if (pad->status[0] == '\0') {
+        strcpy(model, "Claude Code");
+    } else if (nl != NULL) {
+        size_t n = (size_t)(nl - pad->status);
+        memcpy(model, pad->status, n);
+        model[n] = '\0';
+        limits   = nl + 1;
+    } else {
+        strcpy(model, pad->status);
+    }
+    lv_label_set_text(label_model, model);
+    lv_label_set_text(label_limits, limits);
 
     if (ask) {
         set_hidden(label_task, true);
+        set_hidden(label_activity, true);
+        for (uint8_t i = 0; i < M_COUNT; i++) set_hidden(mascot[i], true);
         set_hidden(label_prompt, false);
         lv_label_set_text(label_prompt, pad->prompt);
         for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) {
@@ -75,10 +165,16 @@ static void render(void) {
         }
     } else {
         set_hidden(label_task, false);
+        set_hidden(label_activity, false);
         set_hidden(label_prompt, true);
+        for (uint8_t i = 0; i < M_COUNT; i++) set_hidden(mascot[i], false);
         for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) set_hidden(option_box[i], true);
         lv_label_set_text(label_task, pad->task);
+        lv_label_set_text(label_activity, pad->prompt);
+        if (!busy) pose_mascot(-1);
     }
+    shown_busy  = busy;
+    shown_frame = UINT32_MAX;
 }
 
 static void screen_claude_init(void) {
@@ -97,14 +193,27 @@ static void screen_claude_init(void) {
     };
     icon_claude = lv_img_create(content);
     lv_img_set_src(icon_claude, &claude_icon_dsc);
-    lv_obj_set_style_img_recolor(icon_claude, lv_color_hex(0xD97757), 0);
+    lv_obj_set_style_img_recolor(icon_claude, lv_color_hex(CL_ORANGE), 0);
     lv_obj_set_style_img_recolor_opa(icon_claude, LV_OPA_COVER, 0);
-    lv_obj_set_pos(icon_claude, CL_PAD, 3);
+    lv_obj_set_pos(icon_claude, CL_PAD, 6);
 
-    lv_coord_t status_x = CL_PAD + CL_ICON + 8;
-    label_status = make_label(status_x, 11, EH_DISPLAY_CONTENT_WIDTH - status_x - CL_PAD, 22, &eh_font_montserrat_16, accent_color_blue);
-    label_task   = make_label(CL_PAD, CL_BODY_Y, CL_INNER_W, 210, &eh_font_montserrat_20, lv_color_white());
-    label_prompt = make_label(CL_PAD, CL_BODY_Y, CL_INNER_W, CL_PROMPT_H, &eh_font_montserrat_20, lv_color_white());
+    lv_coord_t model_x = CL_PAD + CL_ICON + 8;
+    label_model        = make_label(model_x, 5, EH_DISPLAY_CONTENT_WIDTH - model_x - CL_PAD, 26, &eh_font_montserrat_20, accent_color_blue);
+    label_limits       = make_label(CL_PAD, 33, CL_INNER_W, 20, &eh_font_montserrat_16, lv_color_hex(0x9A9A9A));
+    head_rule          = make_rect(content, CL_PAD, CL_HEAD_RULE_Y, CL_INNER_W, 1, lv_color_hex(0x3A3A3A));
+
+    label_task     = make_label(CL_PAD, CL_BODY_Y, CL_INNER_W, CL_TASK_H, &eh_font_montserrat_20, lv_color_white());
+    label_activity = make_label(CL_PAD, CL_ACT_Y, CL_INNER_W, CL_ACT_H, &eh_font_montserrat_16, lv_color_hex(0x9A9A9A));
+    label_prompt   = make_label(CL_PAD, CL_BODY_Y, CL_INNER_W, CL_PROMPT_H, &eh_font_montserrat_20, lv_color_white());
+
+    for (uint8_t i = 0; i < M_COUNT; i++) {
+        bool eye  = i == M_EYE_L || i == M_EYE_R;
+        mascot[i] = make_rect(content, CL_MASCOT_X + mascot_x[i] * CL_Q, CL_MASCOT_Y + mascot_y[i] * CL_Q, mascot_w[i] * CL_Q, mascot_h[i] * CL_Q,
+                              eye ? lv_color_black() : lv_color_hex(CL_ORANGE));
+    }
+    // Eyes sit on top of the body.
+    lv_obj_move_foreground(mascot[M_EYE_L]);
+    lv_obj_move_foreground(mascot[M_EYE_R]);
 
     for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) {
         option_box[i] = lv_obj_create(content);
@@ -136,9 +245,18 @@ static void screen_claude_load(void) {
 
 static void screen_claude_housekeep(void) {
     eh_claude_pad_t *pad = eh_claude_pad_get();
-    if (!pad->dirty) return;
-    pad->dirty = false;
-    render();
+    bool busy = eh_claude_pad_busy();
+    if (pad->dirty || busy != shown_busy) {
+        pad->dirty = false;
+        render();
+    }
+    if (busy && pad->mode != EH_CLAUDE_MODE_ASK) {
+        uint32_t frame = timer_read32() / CL_FRAME_MS;
+        if (frame != shown_frame) {
+            shown_frame = frame;
+            pose_mascot((int32_t)(frame % 1000));
+        }
+    }
 }
 
 const eh_screen_t eh_screen_claude = {

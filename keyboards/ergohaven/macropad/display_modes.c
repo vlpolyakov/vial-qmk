@@ -243,7 +243,11 @@ void display_housekeeping_task(void) {
                 break;
 
             case SCREEN_LAYOUT:
-                if (display_expired) {
+                if (display_expired
+#ifdef EH_CLAUDE_PAD_ENABLE
+                    && !eh_claude_pad_busy()
+#endif
+                ) {
                     change_screen_state = SCREEN_OFF;
 #ifdef EH_CLAUDE_PAD_ENABLE
                 } else if (eh_claude_pad_live() && user_activity_elapsed > 3000) {
@@ -257,7 +261,11 @@ void display_housekeeping_task(void) {
                 break;
 
             case SCREEN_HOME:
-                if (display_expired && screen_elapsed > 1000) {
+                if (display_expired && screen_elapsed > 1000
+#ifdef EH_CLAUDE_PAD_ENABLE
+                    && !eh_claude_pad_busy()
+#endif
+                ) {
                     change_screen_state = SCREEN_OFF;
                 }
 #ifdef EH_CLAUDE_PAD_ENABLE
@@ -270,7 +278,7 @@ void display_housekeeping_task(void) {
 #ifdef EH_CLAUDE_PAD_ENABLE
             case SCREEN_CLAUDE:
                 if (eh_claude_pad_ask_active()) break;
-                if (display_expired && screen_elapsed > 1000) {
+                if (display_expired && screen_elapsed > 1000 && !eh_claude_pad_busy()) {
                     change_screen_state = SCREEN_OFF;
                 } else if (!eh_claude_pad_live()) {
                     change_screen_state = SCREEN_HOME;
@@ -285,6 +293,10 @@ void display_housekeeping_task(void) {
                 break;
 
             case SCREEN_OFF:
+#ifdef EH_CLAUDE_PAD_ENABLE
+                // Claude started working while the screen was off: show the animation.
+                if (eh_claude_pad_busy() && eh_claude_pad_live()) change_screen_state = SCREEN_CLAUDE;
+#endif
                 break;
         }
     }
