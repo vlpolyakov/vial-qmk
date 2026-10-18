@@ -100,6 +100,16 @@ static bool process_set(uint8_t *data) {
         return true;
     }
 
+    if (sub == EH_CLAUDE_SUB_END) {
+        status_seen   = false;
+        pad.busy      = false;
+        pad.mode      = EH_CLAUDE_MODE_IDLE;
+        pad.opt_count = 0;
+        pad.answered  = false;
+        pad.dirty     = true;
+        return true;
+    }
+
     if (sub == EH_CLAUDE_SUB_BUSY) {
         if (data[2] != 0 && !eh_claude_pad_busy()) busy_since = timer_read32();
         pad.busy     = data[2] != 0;

@@ -233,7 +233,14 @@ void display_housekeeping_task(void) {
         uint32_t clock_delay = get_clock_delay_ms();
 #endif
         uint32_t display_timeout  = get_lcd_timeout_ms();
+#ifdef EH_CLAUDE_PAD_ENABLE
+        // The screen stays on all the time (it is the Claude Code status display).
+        bool     display_expired  = false;
+        (void)display_timeout;
+        (void)activity_elapsed;
+#else
         bool     display_expired  = display_timeout > 0 && activity_elapsed > display_timeout && user_activity_elapsed > 500;
+#endif
 
         switch (screen_state) {
             case SCREEN_SPLASH:

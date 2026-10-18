@@ -19,6 +19,7 @@
  *   SET clear      : F0 11   back to idle, clears task/prompt/options/busy.
  *   SET busy       : F0 12 <0|1>   Claude is working (animation); expires
  *                    after EH_CLAUDE_BUSY_TIMEOUT_MS without a refresh.
+ *   SET end        : F0 13   the Claude Code session ended: leave the Claude screen.
  *   In idle mode the "prompt" field is shown as the current activity.
  *   Header fields: 0 model, 10 context ("Ctx: 14%"), 8 five-hour limit line,
  *   9 weekly limit line, 7 task status line ("Caramelising... 22 000 tokens"
@@ -39,6 +40,7 @@
 #define EH_CLAUDE_SUB_COMMIT 0x10
 #define EH_CLAUDE_SUB_CLEAR 0x11
 #define EH_CLAUDE_SUB_BUSY 0x12
+#define EH_CLAUDE_SUB_END 0x13
 
 #define EH_CLAUDE_MAX_OPTS 4
 #define EH_CLAUDE_STATUS_MAX 48
