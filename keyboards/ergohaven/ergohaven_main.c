@@ -156,6 +156,8 @@ bool pre_process_record_kb(uint16_t keycode, keyrecord_t* record) {
     // While a Claude question is shown, the encoder chooses an answer and its
     // click confirms it. Nothing is sent to the host as keystrokes; the host
     // reads the answer over raw HID.
+    if (IS_KEYEVENT(record->event)) eh_claude_pad_log(record->event.pressed ? 1 : 2, record->event.key.row * 16 + record->event.key.col);
+    if (IS_ENCODEREVENT(record->event) && record->event.pressed) eh_claude_pad_log(3, record->event.key.row == KEYLOC_ENCODER_CW ? 1 : 0);
     if (IS_KEYEVENT(record->event) && record->event.key.row == 0 && record->event.key.col == 2 && record->event.pressed) eh_claude_pad_note_raw_click();
     // Also swallow turns and clicks for a moment after the answer: extra presses must not reach the host as Enter.
     if (eh_claude_pad_ask_visible()) {

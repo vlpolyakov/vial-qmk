@@ -32,11 +32,18 @@
  *      <raw_clicks> <handled_clicks> <rotations> <state_at_last_click>   (diagnostics, wrap at 256)
  *   state bits: 1 ask active, 2 mode is ask, 4 answered, 8 host seen
  *
+ * Event log (diagnostics): EH_CLAUDE_CMD_EVENTS (F2) returns and drops up to 7 logged events:
+ *   F2 <count> then <count> x { time_ms_lo, time_ms_hi, type, arg }
+ *   types: 1 key press (row*16+col), 2 key release, 3 encoder turn (1 cw / 0 ccw), 4 screen state applied,
+ *          5 matrix activity seen by the display task (arg: 1 = ignored because a question is shown),
+ *          6 Claude view rendered, 7 host commit (mode), 8 click accepted
+ *
  * Every reply to SET is: F0 <1 ok | 0 rejected> 00 ...
  */
 
 #define EH_CLAUDE_CMD_SET 0xF0
 #define EH_CLAUDE_CMD_POLL 0xF1
+#define EH_CLAUDE_CMD_EVENTS 0xF2
 #define EH_CLAUDE_SUB_COMMIT 0x10
 #define EH_CLAUDE_SUB_CLEAR 0x11
 #define EH_CLAUDE_SUB_BUSY 0x12
@@ -119,5 +126,7 @@ uint32_t eh_claude_pad_busy_seconds(void);
 
 // Every press of the encoder click key, whether or not it is captured (diagnostics).
 void eh_claude_pad_note_raw_click(void);
+// Diagnostic event log, see EH_CLAUDE_CMD_EVENTS.
+void eh_claude_pad_log(uint8_t type, uint8_t arg);
 void eh_claude_pad_encoder(bool clockwise);
 void eh_claude_pad_click(void);

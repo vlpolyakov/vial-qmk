@@ -12,10 +12,21 @@ static uint32_t        busy_since;
 static uint32_t        wait_since;
 static uint32_t        last_text_rx;
 static uint32_t        answered_at;
+#define EVENT_RING 96
+static struct { uint16_t t; uint8_t type, arg; } event_ring[EVENT_RING];
+static uint8_t event_head, event_tail;
 static uint8_t         confirm_count, confirm_answer;
 static uint8_t         raw_clicks, handled_clicks, rotations, click_state;
 static bool            host_seen;
 static bool            status_seen;
+
+void eh_claude_pad_log(uint8_t type, uint8_t arg) {
+    event_ring[event_head].t    = (uint16_t)timer_read32();
+    event_ring[event_head].type = type;
+    event_ring[event_head].arg  = arg;
+    event_head                  = (event_head + 1) % EVENT_RING;
+    if (event_head == event_tail) event_tail = (event_tail + 1) % EVENT_RING;
+}
 
 eh_claude_pad_t *eh_claude_pad_get(void) {
     return &pad;
@@ -95,6 +106,7 @@ static bool process_set(uint8_t *data) {
         }
         if (mode == EH_CLAUDE_MODE_WAIT && pad.mode != EH_CLAUDE_MODE_WAIT) wait_since = timer_read32();
         pad.mode       = mode;
+        eh_claude_pad_log(7, mode);
         pad.opt_count  = count;
         pad.selected   = count > 0 && data[4] < count ? data[4] : 0;
         pad.request_id = id;
@@ -146,6 +158,22 @@ bool eh_claude_pad_process_hid(uint8_t *data, uint8_t length) {
         if (ok) touch_host();
         memset(data + 1, 0, length - 1);
         data[1] = ok ? 1 : 0;
+        return true;
+    }
+
+    if (data[0] == EH_CLAUDE_CMD_EVENTS) {
+        uint8_t n = 0;
+        memset(data, 0, length);
+        data[0] = EH_CLAUDE_CMD_EVENTS;
+        while (n < 7 && event_tail != event_head) {
+            data[2 + n * 4 + 0] = event_ring[event_tail].t & 0xFF;
+            data[2 + n * 4 + 1] = event_ring[event_tail].t >> 8;
+            data[2 + n * 4 + 2] = event_ring[event_tail].type;
+            data[2 + n * 4 + 3] = event_ring[event_tail].arg;
+            event_tail          = (event_tail + 1) % EVENT_RING;
+            n++;
+        }
+        data[1] = n;
         return true;
     }
 
@@ -241,6 +269,7 @@ void eh_claude_pad_encoder(bool clockwise) {
 void eh_claude_pad_click(void) {
     if (!eh_claude_pad_ask_active()) return;
     handled_clicks++;
+    eh_claude_pad_log(8, 0);
     answered_at    = timer_read32();
     confirm_count  = pad.opt_count;
     confirm_answer = pad.selected;

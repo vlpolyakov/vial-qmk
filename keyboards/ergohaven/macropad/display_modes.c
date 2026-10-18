@@ -57,6 +57,9 @@ static void apply_screen_state(void) {
 
     screen_timer = timer_read32();
     screen_state = change_screen_state;
+#ifdef EH_CLAUDE_PAD_ENABLE
+    eh_claude_pad_log(4, screen_state);
+#endif
     switch (screen_state) {
         case SCREEN_SPLASH:
             current_screen = eh_screen_splash;
@@ -199,6 +202,7 @@ void display_housekeeping_task(void) {
     bool ask_visible = false;
 #ifdef EH_CLAUDE_PAD_ENABLE
     ask_visible = eh_claude_pad_ask_visible();
+    if (matrix_changed) eh_claude_pad_log(5, ask_visible ? 1 : 0);
 #endif
     if (matrix_changed && !ask_visible) {
         last_user_activity_timer = timer_read32();

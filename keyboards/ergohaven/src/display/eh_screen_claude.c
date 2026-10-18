@@ -302,6 +302,7 @@ static void render(void) {
             style_option(i, i == pad->selected);
         }
     }
+    eh_claude_pad_log(6, view);
     shown_view  = view;
     shown_busy  = busy;
     shown_frame = UINT32_MAX;
