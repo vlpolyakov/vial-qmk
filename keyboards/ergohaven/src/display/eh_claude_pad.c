@@ -11,6 +11,8 @@ static uint32_t        last_busy_rx;
 static uint32_t        busy_since;
 static uint32_t        wait_since;
 static uint32_t        last_text_rx;
+static uint32_t        answered_at;
+static uint8_t         confirm_count, confirm_answer;
 static uint8_t         raw_clicks, handled_clicks, rotations, click_state;
 static bool            host_seen;
 static bool            status_seen;
@@ -179,7 +181,20 @@ bool eh_claude_pad_ask_active(void) {
            timer_elapsed32(last_host_contact) < EH_CLAUDE_ASK_HOST_TIMEOUT_MS;
 }
 
+bool eh_claude_pad_confirming(void) {
+    return answered_at != 0 && timer_elapsed32(answered_at) < EH_CLAUDE_CONFIRM_MS;
+}
+
+uint8_t eh_claude_pad_confirm_count(void) {
+    return confirm_count;
+}
+
+uint8_t eh_claude_pad_confirm_answer(void) {
+    return confirm_answer;
+}
+
 bool eh_claude_pad_ask_visible(void) {
+    if (eh_claude_pad_confirming()) return true;
     return pad.mode == EH_CLAUDE_MODE_ASK && pad.opt_count >= 2 && host_seen && timer_elapsed32(last_host_contact) < EH_CLAUDE_ASK_HOST_TIMEOUT_MS;
 }
 
@@ -226,6 +241,9 @@ void eh_claude_pad_encoder(bool clockwise) {
 void eh_claude_pad_click(void) {
     if (!eh_claude_pad_ask_active()) return;
     handled_clicks++;
+    answered_at    = timer_read32();
+    confirm_count  = pad.opt_count;
+    confirm_answer = pad.selected;
     pad.answered = true;
     pad.answer   = pad.selected;
     pad.dirty    = true;

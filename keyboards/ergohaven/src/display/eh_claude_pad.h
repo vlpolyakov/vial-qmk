@@ -59,6 +59,8 @@
 #define EH_CLAUDE_LIVE_TIMEOUT_MS 120000
 // A "waiting for you in the terminal" screen goes away on its own after this long.
 #define EH_CLAUDE_WAIT_TIMEOUT_MS 120000
+// After the click the screen shows "accepted" for this long and swallows further clicks/turns.
+#define EH_CLAUDE_CONFIRM_MS 1200
 // The busy animation stops if the host does not refresh the flag.
 #define EH_CLAUDE_BUSY_TIMEOUT_MS 90000
 
@@ -98,6 +100,10 @@ bool eh_claude_pad_process_hid(uint8_t *data, uint8_t length);
 bool eh_claude_pad_ask_active(void);
 // A question is on the screen, even if it was just answered and the host has not taken the answer yet.
 bool eh_claude_pad_ask_visible(void);
+// True for a moment after the encoder click confirmed an answer ("accepted" screen).
+bool eh_claude_pad_confirming(void);
+uint8_t eh_claude_pad_confirm_count(void);
+uint8_t eh_claude_pad_confirm_answer(void);
 // True while the host keeps the status screen fresh.
 bool eh_claude_pad_live(void);
 // True while the host reports that Claude is working (and keeps saying so).

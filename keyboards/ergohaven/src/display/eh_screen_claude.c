@@ -47,7 +47,7 @@ LV_FONT_DECLARE(eh_font_montserrat_20);
 #define CL_FRAME_MS 140
 #define CL_ORANGE 0xD97757
 
-enum { VIEW_STATUS, VIEW_ASK, VIEW_WAIT };
+enum { VIEW_STATUS, VIEW_ASK, VIEW_WAIT, VIEW_CONFIRM };
 
 static lv_obj_t *screen_claude;
 static lv_obj_t *content;
@@ -237,6 +237,7 @@ static void layout_header(eh_claude_pad_t *pad) {
 
 static uint8_t current_view(const eh_claude_pad_t *pad) {
     if (pad->mode == EH_CLAUDE_MODE_ASK && pad->opt_count >= 2 && eh_claude_pad_ask_active()) return VIEW_ASK;
+    if (eh_claude_pad_confirming()) return VIEW_CONFIRM;
     if (pad->mode == EH_CLAUDE_MODE_WAIT && eh_claude_pad_wait_active()) return VIEW_WAIT;
     return VIEW_STATUS;
 }
@@ -271,6 +272,22 @@ static void render(void) {
         show_line(pad, busy);
         if (!busy) pose_mascot(-1);
         for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) set_hidden(option_box[i], true);
+    } else if (view == VIEW_CONFIRM) {
+        // The click was accepted: keep the question, light up the chosen option, dim the rest.
+        lv_label_set_text(label_title, "Принято");
+        lv_label_set_text(label_hint, "Отправляю ответ...");
+        for (uint8_t i = 0; i < EH_CLAUDE_MAX_OPTS; i++) {
+            bool used = i < eh_claude_pad_confirm_count();
+            set_hidden(option_box[i], !used);
+            if (!used) continue;
+            lv_label_set_text(option_label[i], pad->opt[i]);
+            if (i == eh_claude_pad_confirm_answer()) {
+                style_option(i, true);
+            } else {
+                lv_obj_set_style_bg_color(option_box[i], lv_color_hex(0x181818), LV_PART_MAIN);
+                lv_obj_set_style_text_color(option_label[i], lv_color_hex(0x606060), LV_PART_MAIN);
+            }
+        }
     } else {
         bool ask = view == VIEW_ASK;
         lv_label_set_text(label_title, pad->title[0] ? pad->title : (ask ? "Вопрос" : "Ожидание"));
@@ -361,7 +378,8 @@ static void screen_claude_housekeep(void) {
     eh_claude_pad_t *pad  = eh_claude_pad_get();
     bool             busy = eh_claude_pad_busy();
     uint8_t          view = current_view(pad);
-    if ((pad->dirty && eh_claude_pad_text_settled()) || busy != shown_busy || view != shown_view) {
+    bool keep = view == VIEW_CONFIRM && shown_view == VIEW_CONFIRM;
+    if (!keep && ((pad->dirty && eh_claude_pad_text_settled()) || busy != shown_busy || view != shown_view)) {
         pad->dirty = false;
         render();
     }
