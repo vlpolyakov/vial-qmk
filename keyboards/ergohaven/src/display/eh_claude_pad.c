@@ -205,7 +205,7 @@ bool eh_claude_pad_process_hid(uint8_t *data, uint8_t length) {
 }
 
 bool eh_claude_pad_ask_active(void) {
-    return pad.mode == EH_CLAUDE_MODE_ASK && !pad.answered && pad.opt_count >= 2 && host_seen &&
+    return pad.mode == EH_CLAUDE_MODE_ASK && !pad.answered && !eh_claude_pad_confirming() && pad.opt_count >= 2 && host_seen &&
            timer_elapsed32(last_host_contact) < EH_CLAUDE_ASK_HOST_TIMEOUT_MS;
 }
 

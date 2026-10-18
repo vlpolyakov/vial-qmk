@@ -67,7 +67,7 @@
 // A "waiting for you in the terminal" screen goes away on its own after this long.
 #define EH_CLAUDE_WAIT_TIMEOUT_MS 120000
 // After the click the screen shows "accepted" for this long and swallows further clicks/turns.
-#define EH_CLAUDE_CONFIRM_MS 1500
+#define EH_CLAUDE_CONFIRM_MS 2000
 // The busy animation stops if the host does not refresh the flag.
 #define EH_CLAUDE_BUSY_TIMEOUT_MS 90000
 

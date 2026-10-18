@@ -236,8 +236,8 @@ static void layout_header(eh_claude_pad_t *pad) {
 }
 
 static uint8_t current_view(const eh_claude_pad_t *pad) {
-    if (pad->mode == EH_CLAUDE_MODE_ASK && pad->opt_count >= 2 && eh_claude_pad_ask_active()) return VIEW_ASK;
     if (eh_claude_pad_confirming()) return VIEW_CONFIRM;
+    if (pad->mode == EH_CLAUDE_MODE_ASK && pad->opt_count >= 2 && eh_claude_pad_ask_active()) return VIEW_ASK;
     if (pad->mode == EH_CLAUDE_MODE_WAIT && eh_claude_pad_wait_active()) return VIEW_WAIT;
     return VIEW_STATUS;
 }
