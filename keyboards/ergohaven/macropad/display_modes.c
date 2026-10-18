@@ -93,6 +93,11 @@ static void apply_screen_state(void) {
 void display_process_matrix_press(void) {
     if (!is_display_enabled()) return;
     last_matrix_activity_trigger();
+#ifdef EH_CLAUDE_PAD_ENABLE
+    // Called from the key/encoder interrupt paths too. Switching to the layout screen and back blinks the display and
+    // blocks key scanning for a while, so a question (and its "accepted" confirmation) keeps the screen.
+    if (eh_claude_pad_ask_visible()) return;
+#endif
     last_user_activity_timer = timer_read32();
     change_screen_state      = SCREEN_LAYOUT;
     screen_timer             = last_user_activity_timer;
