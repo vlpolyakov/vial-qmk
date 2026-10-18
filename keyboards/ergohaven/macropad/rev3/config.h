@@ -41,6 +41,6 @@
 
 // Deep blue backlight (like the Meletrix keyboard); survives an EEPROM reset after flashing.
 #define RGB_MATRIX_DEFAULT_MODE RGB_MATRIX_SOLID_COLOR
-#define RGB_MATRIX_DEFAULT_HUE 155
-#define RGB_MATRIX_DEFAULT_SAT 255
-#define RGB_MATRIX_DEFAULT_VAL 110
+#define RGB_MATRIX_DEFAULT_HUE 145
+#define RGB_MATRIX_DEFAULT_SAT 235
+#define RGB_MATRIX_DEFAULT_VAL 165
